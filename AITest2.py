@@ -1,7 +1,10 @@
 from openrouter import OpenRouter
+from dotenv import load_dotenv
+
+load_dotenv()
 import os
 with OpenRouter(
-    api_key=os.getenv("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")
+    api_key=os.getenv("OPENROUTER_API_KEY"),
 ) as client:
     response = client.chat.send(
         model="openrouter/free",

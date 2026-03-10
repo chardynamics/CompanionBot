@@ -1,7 +1,10 @@
 from openrouter import OpenRouter
+from dotenv import load_dotenv
+
+load_dotenv()
 
 client = OpenRouter(
-    api_key="sk-hc-v1-f2f57a42ad75421bb33f2a09ce1b7c81dfd59237319a42b2b3f4bbd6544d2cf9",
+    api_key=os.getenv("HACKCLUB_API_KEY"),
     server_url="https://ai.hackclub.com/proxy/v1",
 )
 
