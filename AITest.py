@@ -2,6 +2,7 @@ from openrouter import OpenRouter
 from dotenv import load_dotenv
 
 load_dotenv()
+import os
 
 client = OpenRouter(
     api_key=os.getenv("HACKCLUB_API_KEY"),
