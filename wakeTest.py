@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv
 import requests
 import base64
+import soxr
 
 load_dotenv()
 
