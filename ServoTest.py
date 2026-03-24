@@ -10,9 +10,9 @@ from adafruit_servokit import ServoKit
 # Set channels to the number of servo channels on your kit.
 # 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 kit = ServoKit(channels=16)
+##Never use 15
 
-kit.continuous_servo[1].throttle = 1
-time.sleep(1)
-kit.continuous_servo[1].throttle = -1
-time.sleep(1)
-kit.continuous_servo[1].throttle = 0
+while True:
+    speed = float(input("Enter the speed (0.2 is nothing): "))
+    for i in range(11, 15):
+        kit.continuous_servo[i].throttle = speed

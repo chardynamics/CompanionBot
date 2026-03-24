@@ -1,7 +1,6 @@
 import openwakeword
 from openwakeword.model import Model
 
-
 # Instantiate the model(s)
 model = Model()
 

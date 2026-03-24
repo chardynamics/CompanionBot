@@ -17,8 +17,8 @@ load_dotenv()
 # -----------------------
 # Config
 # -----------------------
-RATE = 16000
-CHUNK = 320  # 20ms (required for webrtcvad)
+RATE = 44100
+CHUNK = 400  # 20ms (required for webrtcvad)
 CHANNELS = 1
 
 PREBUFFER_SECONDS = 1
@@ -33,7 +33,7 @@ WAKE_THRESHOLD = 0.5
 # Init
 # -----------------------
 vad = webrtcvad.Vad(VAD_MODE)
-model = Model(wakeword_models=["hey_rhasspy"])
+model = Model()
 
 pa = pyaudio.PyAudio()
 stream = pa.open(
