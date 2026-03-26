@@ -1,4 +1,4 @@
-from picamera2 import PiCamera2
+from picamera2 import Picamera2
 import base64
 import requests
 from dotenv import load_dotenv
@@ -11,7 +11,7 @@ load_dotenv()
 model_path = os.path.expanduser("en_US-amy-medium.onnx")
 voice = PiperVoice.load(model_path)
 
-picam2 = PiCamera2()
+picam2 = Picamera2()
 
 picam2.start()
 picam2.capture_file("foto.jpg")
@@ -34,7 +34,7 @@ response = requests.post(
         "messages": [{
             "role": "user",
             "content": [
-                {"type": "text", "text": "Describe this image in detail"},
+                {"type": "text", "text": "Take what you see on the notebook and add details to it"},
                 {
                     "type": "image_url",
                     "image_url": {
@@ -49,7 +49,13 @@ response = requests.post(
 result = response.json()
 print(result["choices"][0]["message"]["content"])
 
-audio_bytes = voice.synthesize(result["choices"][0]["message"]["content"])
+text = result["choices"][0]["message"]["content"]
+if isinstance(text, list):
+    text = "".join(part.get("text", "") for part in text)
+else:
+    text = text
+
+audio_bytes = voice.synthesize(text)
 output_filename = "output.wav"
 sample_rate = 22050
 

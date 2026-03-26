@@ -61,9 +61,9 @@ def drain_buffer(model: Model) -> None:
             dtype=np.int16,
         )
         predictions = model.predict(chunk)
+        # Print all detection scores
         for wake_word, score in predictions.items():
-            if score >= DETECTION_THRESHOLD:
-                print(f"[DETECTED] '{wake_word}'  score={score:.3f}")
+            print(", ".join(f"{k}:{v:.3f}" for k, v in predictions.items()))
  
  
 # ──────────────────────────────────────────────
@@ -97,7 +97,7 @@ def main():
     print("Loading openWakeWord model …")
     # Pass wakeword_models=["path/to/model.tflite"] to load a custom model,
     # or leave empty to use the built-in "hey_jarvis" / "alexa" defaults.
-    oww_model = Model(inference_framework="tflite")
+    oww_model = Model()
     print(f"Loaded models: {list(oww_model.models.keys())}")
  
     pa = pyaudio.PyAudio()
@@ -114,6 +114,7 @@ def main():
         channels=CHANNELS,
         format=FORMAT,
         input=True,
+        input_device_index=1,
         frames_per_buffer=MIC_CHUNK,
         stream_callback=lambda in_data, frame_count, time_info, status:
             audio_callback(
