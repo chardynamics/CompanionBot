@@ -148,8 +148,6 @@ def drain_buffer(model: Model) -> None:
 
 
 def start_recording(wake_word: str) -> None:
-    sample_buffer.clear()  # ← ADD THIS
-    resampler.reset()      # ← VERY IMPORTANT
     state["recording"]       = True
     state["recorded_frames"] = []
     state["silence_start"]   = None
@@ -250,7 +248,24 @@ def model_return(text):
     }
     data = {
         "model": model,
-        "input": text,
+        "input": [
+            {
+                "type": "message", 
+                "role": "user",
+                "content": {
+                    "type": "input_text",
+                    "text": "Always respond in concise, short messages",
+                },
+            },
+            {
+                "type": "message", 
+                "role": "user",
+                "content": {
+                    "type": "input_text",
+                    "text": text,
+                },
+            }
+        ]
     }
 
     req = requests.post(url, headers=headers, json=data, timeout=30)
@@ -324,7 +339,6 @@ def main():
         while True:
             if state["needs_processing"]:
                 state["needs_processing"] = False
-                # NOTE: do NOT set processing=False here, it was set True in finish_recording
 
                 stream.stop_stream()
 
@@ -334,9 +348,8 @@ def main():
                 print("Getting response …")
                 response = model_return(text)
                 print("[RESPONSE]", response)
-
-                print("[LISTENING] Waiting for wake word …\n")
                 sample_buffer.clear()
+                print("[LISTENING] Waiting for wake word …\n")
                 state["processing"] = False  # ← unblock only AFTER api calls done
                 stream.start_stream()
 
