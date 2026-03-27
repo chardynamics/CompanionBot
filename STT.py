@@ -21,7 +21,9 @@ import time
 import os
 from dotenv import load_dotenv
 from collections import deque
+from piper.voice import PiperVoice
 from openwakeword.model import Model
+import subprocess
 
 load_dotenv()
 model_path = os.path.expanduser("~/CompanionBot/src/models/en_US-amy-medium.onnx")
@@ -55,7 +57,7 @@ MIC_CHUNK           = int(np.ceil(OWW_CHUNK * RESAMPLE_RATIO))  # ≈ 1103 sampl
 DETECTION_THRESHOLD = 0.5
 
 SAMPLE_RATE = 22050
-OUTPUT_FILENAME = "~/CompanionBot/recordings/output.wav"
+OUTPUT_FILENAME = os.path.expanduser("~/CompanionBot/recordings/output.wav")
 
 # ── Recording settings ─────────────────────────
 # How long to record after wake word (seconds)
@@ -247,27 +249,25 @@ def transcribe_audio(filename):
     req = requests.post(url, headers=headers, json=data, timeout=60)
 
     result = req.json()
-    print("Transcript:", req.json().get("text"))
-    return result.get("output", {}).get("text")
+    #print("Transcript:", req.json().get("text"))
+    
+    text = result.get("output", {}).get("text")
+    print("Transcript:", text)  # now prints the actual value being returned
+    return text
 
     #return req.json().get("output", {}).get("text")
 
 def play_audio(response):
+    os.makedirs(os.path.dirname(OUTPUT_FILENAME), exist_ok=True)
     with wave.open(OUTPUT_FILENAME, 'wb') as wav_file:
-    wav_file.setnchannels(1)  # Mono audio
-    wav_file.setsampwidth(2)  # 16-bit sample width (S16_LE)
-    wav_file.setframerate(SAMPLE_RATE)
-
-    # Now process your long text
-    for audio_chunk in voice.synthesize(response):
-        # Use the pre-formatted bytes attribute we found
-        wav_file.writeframes(audio_chunk.audio_int16_bytes)
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(SAMPLE_RATE)
+        for audio_chunk in voice.synthesize(response):
+            wav_file.writeframes(audio_chunk.audio_int16_bytes)
 
     print(f"Audio saved to {OUTPUT_FILENAME}")
-
-    wave_obj = sa.WaveObject.from_wave_file(OUTPUT_FILENAME)
-    play_obj = wave_obj.play()
-    play_obj.wait_done()
+    subprocess.run(["aplay", OUTPUT_FILENAME], check=True)
 
 def model_return(text):
     if not text:
@@ -371,7 +371,6 @@ def main():
         f"(mic={MIC_RATE} Hz → target={TARGET_RATE} Hz, "
         f"chunk={OWW_CHUNK} samples = {OWW_CHUNK/TARGET_RATE*1000:.1f} ms)"
     )
-    print(f"Recordings saved to: {os.path.abspath(OUTPUT_DIR/)}/")
     print("Press Ctrl+C to stop.\n")
 
     try:
@@ -385,8 +384,15 @@ def main():
                 print("Transcribing …")
                 text = transcribe_audio(state["pending_filename"])
 
+                if not text or not text.strip():
+                    print("[SKIPPING] Empty transcript")
+                    sample_buffer.clear()
+                    state["processing"] = False
+                    stream.start_stream()
+                    continue
+                    
                 print("Getting response …")
-                response = model_return(messages)
+                response = model_return(text)
                 print("[RESPONSE]", response)
 
                 audio_bytes = voice.synthesize(response)
