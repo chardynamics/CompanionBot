@@ -324,6 +324,7 @@ def finish_recording() -> None:
     state["record_start"]    = None
     state["wake_word"]       = "unknown"
     state["processing"]      = True
+    sample_buffer.clear()  # ← clear immediately
 
     if frames:
         filename = save_recording(frames, wake_word)
@@ -341,6 +342,7 @@ def main():
 
     print("Loading openWakeWord model …")
     oww_model = Model()
+    state["oww_model"] = oww_model  # ← add this
     print(f"Loaded models: {list(oww_model.models.keys())}")
 
     pa = pyaudio.PyAudio()
@@ -390,17 +392,17 @@ def main():
                     state["processing"] = False
                     stream.start_stream()
                     continue
-                    
+
                 print("Getting response …")
                 response = model_return(text)
                 print("[RESPONSE]", response)
 
-                audio_bytes = voice.synthesize(response)
-                play_audio(response)
+                play_audio(response)  # stream already stopped, no feedback loop
 
+                time.sleep(0.5)       # longer settle time
                 sample_buffer.clear()
-                print("[LISTENING] Waiting for wake word …\n")
-                state["processing"] = False  # ← unblock only AFTER api calls done
+                state["oww_model"].reset()
+                state["processing"] = False
                 stream.start_stream()
 
             time.sleep(0.05)
