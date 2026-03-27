@@ -34,7 +34,7 @@ response = requests.post(
         "messages": [{
             "role": "user",
             "content": [
-                {"type": "text", "text": "Take what you see on the notebook and add details to it"},
+                {"type": "text", "text": "Make a concise joke involving the two people in the photo"},
                 {
                     "type": "image_url",
                     "image_url": {

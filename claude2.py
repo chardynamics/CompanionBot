@@ -44,7 +44,7 @@ MAX_RECORD_SECONDS  = 10
 # Stop early if silence lasts this long (seconds)
 SILENCE_TIMEOUT     = 2.0
 # RMS amplitude below this = silence (tune to your mic/room)
-SILENCE_THRESHOLD   = 300
+SILENCE_THRESHOLD   = 3000
 # Where to save recordings
 OUTPUT_DIR          = "recordings"
 
@@ -73,8 +73,36 @@ state = {
     "oww_model": None,
     "needs_processing": False,  # ← add this
     "pending_filename": None,   # ← and this
+    "processing": False,
 }
 
+def measure_noise_floor(pa, duration=2.0):
+    """Record a few seconds of silence at startup to calibrate."""
+    print("Calibrating mic — please be quiet …")
+    
+    cal_stream = pa.open(
+        rate=MIC_RATE,
+        channels=CHANNELS,
+        format=FORMAT,
+        input=True,
+        input_device_index=1,
+        frames_per_buffer=MIC_CHUNK,
+    )
+    
+    samples = []
+    start = time.time()
+    while time.time() - start < duration:
+        data = cal_stream.read(MIC_CHUNK, exception_on_overflow=False)
+        audio = np.frombuffer(data, dtype=np.int16)
+        samples.append(rms(audio))
+    
+    cal_stream.stop_stream()
+    cal_stream.close()
+    
+    floor = np.mean(samples)
+    threshold = floor * 2.5
+    print(f"[CALIBRATION] Noise floor: {floor:.0f} → threshold: {threshold:.0f}")
+    return threshold
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -104,7 +132,6 @@ def save_recording(frames: list, wake_word: str) -> str:
 # openWakeWord inference
 # ──────────────────────────────────────────────
 def drain_buffer(model: Model) -> None:
-    """Pull OWW_CHUNK-sized windows from the buffer and run inference."""
     while len(sample_buffer) >= OWW_CHUNK:
         chunk = np.array(
             [sample_buffer.popleft() for _ in range(OWW_CHUNK)],
@@ -112,12 +139,17 @@ def drain_buffer(model: Model) -> None:
         )
         predictions = model.predict(chunk)
         for wake_word, score in predictions.items():
-            if score >= DETECTION_THRESHOLD and not state["recording"]:
+            if (score >= DETECTION_THRESHOLD
+                    and not state["recording"]
+                    and not state["processing"]
+                    and not state["needs_processing"]):  # ← add this
                 print(f"[DETECTED] '{wake_word}'  score={score:.3f}")
                 start_recording(wake_word)
 
 
 def start_recording(wake_word: str) -> None:
+    sample_buffer.clear()  # ← ADD THIS
+    resampler.reset()      # ← VERY IMPORTANT
     state["recording"]       = True
     state["recorded_frames"] = []
     state["silence_start"]   = None
@@ -143,7 +175,7 @@ def audio_callback(
         now     = time.time()
         elapsed = now - state["record_start"]
         level   = rms(mic_audio)
-        print(f"[RMS] {level:.0f}")  # ← add this temporarily
+        
 
         # Silence detection
         if level < SILENCE_THRESHOLD:
@@ -195,13 +227,20 @@ def transcribe_audio(filename):
             "return_timestamps": True,
         }
     }
-    req = requests.post(url, headers=headers, json=data)
+    req = requests.post(url, headers=headers, json=data, timeout=60)
 
+    result = req.json()
     print("Transcript:", req.json().get("text"))
-    return req.json().get("text")
+    return result.get("output", {}).get("text")
+
+    #return req.json().get("output", {}).get("text")
 
 def model_return(text):
-    print("Sending to cloud...")
+    if not text:
+        print("[ERROR] No text to send to model")
+        return None
+
+    print("Sending to model...")
     model = "google/gemini-2.5-flash-lite-preview-09-2025"
     url = "https://ai.hackclub.com/proxy/v1/responses"
     headers = {
@@ -211,22 +250,16 @@ def model_return(text):
     }
     data = {
         "model": model,
-        "input": [
-            {
-                "type": 'message', 
-                "role": "user",
-                "content": [
-                    {
-                    "type": "input_text",
-                    "text": text,
-                    }
-                ],
-            }
-        ],
+        "input": text,
     }
-    req = requests.post(url, headers=headers, json=data)
-    print("Transcript:", req.json().get("text"))
-    return req.json().get("text")
+
+    req = requests.post(url, headers=headers, json=data, timeout=30)
+    result = req.json()
+    try:
+        return result["output"][0]["content"][0]["text"]
+    except (KeyError, IndexError) as e:
+        print(f"[ERROR] Unexpected response structure: {e}")
+        return None
 
 def finish_recording() -> None:
     frames    = state["recorded_frames"]
@@ -236,6 +269,7 @@ def finish_recording() -> None:
     state["silence_start"]   = None
     state["record_start"]    = None
     state["wake_word"]       = "unknown"
+    state["processing"]      = True
 
     if frames:
         filename = save_recording(frames, wake_word)
@@ -249,11 +283,13 @@ def finish_recording() -> None:
 # Main
 # ──────────────────────────────────────────────
 def main():
+    global SILENCE_THRESHOLD
     print("Loading openWakeWord model …")
     oww_model = Model()
     print(f"Loaded models: {list(oww_model.models.keys())}")
 
     pa = pyaudio.PyAudio()
+    SILENCE_THRESHOLD = measure_noise_floor(pa)  # ← before pa.open(callback...)
 
     print("\nAvailable input devices:")
     for i in range(pa.get_device_count()):
@@ -288,6 +324,7 @@ def main():
         while True:
             if state["needs_processing"]:
                 state["needs_processing"] = False
+                # NOTE: do NOT set processing=False here, it was set True in finish_recording
 
                 stream.stop_stream()
 
@@ -299,9 +336,11 @@ def main():
                 print("[RESPONSE]", response)
 
                 print("[LISTENING] Waiting for wake word …\n")
+                sample_buffer.clear()
+                state["processing"] = False  # ← unblock only AFTER api calls done
                 stream.start_stream()
 
-            time.sleep(0.05)  # small sleep to avoid busy-waiting
+            time.sleep(0.05)
     except KeyboardInterrupt:
         print("\nStopping …")
     finally:
