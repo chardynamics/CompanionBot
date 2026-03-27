@@ -8,13 +8,13 @@ import os
 import simpleaudio as sa
 
 load_dotenv()
-model_path = os.path.expanduser("en_US-amy-medium.onnx")
+model_path = os.path.expanduser("~/CompanionBot/src/models/en_US-amy-medium.onnx")
 voice = PiperVoice.load(model_path)
 
 picam2 = Picamera2()
 
 picam2.start()
-picam2.capture_file("foto.jpg")
+picam2.capture_file("~/CompanionBot/recordings/foto.jpg")
 picam2.stop()
 
 def encode_image(path):
