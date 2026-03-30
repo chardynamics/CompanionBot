@@ -9,7 +9,7 @@ from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics, postprocess_nanodet_detection
 
 class IMX500Detector:
-    def __init__(self, model_path="/usr/share/imx500-models/imx500_network_yolov8n_pp.rpk"):
+    def __init__(self, model_path="src/models/imx500_network_yolo11n_pp.rpk"):
         self.last_detections = []
         self.last_results = None
         
@@ -36,7 +36,7 @@ class IMX500Detector:
         # Initialize camera
         self.picam2 = Picamera2(self.imx500.camera_num)
         
-    def start(self, show_preview=True):
+    def start(self, show_preview=False):
         """Start the detector"""
         config = self.picam2.create_preview_configuration(
             controls={"FrameRate": self.intrinsics.inference_rate}, 
@@ -44,7 +44,7 @@ class IMX500Detector:
         )
         
         self.imx500.show_network_fw_progress_bar()
-        self.picam2.start(config, show_preview=show_preview)
+        self.picam2.start(config)
         
         if self.intrinsics.preserve_aspect_ratio:
             self.imx500.set_auto_aspect_ratio()

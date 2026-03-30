@@ -69,6 +69,7 @@ SILENCE_THRESHOLD   = 3000
 # Where to save recordings
 OUTPUT_DIR          = "recordings"
 
+chunk_id = 0
 # ──────────────────────────────────────────────
 # State
 # ──────────────────────────────────────────────
@@ -95,6 +96,7 @@ state = {
     "needs_processing": False,  # ← add this
     "pending_filename": None,   # ← and this
     "processing": False,
+    "skip_chunks": 0,
 }
 
 def measure_noise_floor(pa, duration=2.0):
@@ -158,13 +160,21 @@ def drain_buffer(model: Model) -> None:
             [sample_buffer.popleft() for _ in range(OWW_CHUNK)],
             dtype=np.int16,
         )
+        if state.get("skip_chunks", 0) > 0:
+            state["skip_chunks"] -= 1
+            model.predict(chunk)  # flush model state but don't act on scores
+            continue
+        
+        print(f"[CHUNK] remaining_buffer={len(sample_buffer)}")
         predictions = model.predict(chunk)
         for wake_word, score in predictions.items():
+            print(f"[PRED] {wake_word}: {score:.3f}")
+            print(f"[STATE] rec={state['recording']} proc={state['processing']} needs={state['needs_processing']}")
             if (score >= DETECTION_THRESHOLD
                     and not state["recording"]
                     and not state["processing"]
-                    and not state["needs_processing"]):  # ← add this
-                print(f"[DETECTED] '{wake_word}'  score={score:.3f}")
+                    and not state["needs_processing"]):
+                print(f"[DETECTED] '{wake_word}' score={score:.3f} time={time.time():.3f}")
                 start_recording(wake_word)
 
 
@@ -217,6 +227,7 @@ def audio_callback(
     else:
         resampled = resampler.resample_chunk(mic_audio, last=False)
         sample_buffer.extend(resampled.tolist())
+        print(f"[BUFFER] size={len(sample_buffer)}")
         drain_buffer(oww_model)
 
     return (None, pyaudio.paContinue)
@@ -249,13 +260,10 @@ def transcribe_audio(filename):
     req = requests.post(url, headers=headers, json=data, timeout=60)
 
     result = req.json()
-    #print("Transcript:", req.json().get("text"))
     
     text = result.get("output", {}).get("text")
-    print("Transcript:", text)  # now prints the actual value being returned
+    print("Transcript:", text)
     return text
-
-    #return req.json().get("output", {}).get("text")
 
 def play_audio(response):
     os.makedirs(os.path.dirname(OUTPUT_FILENAME), exist_ok=True)
@@ -316,6 +324,17 @@ def model_return(text):
         return None
 
 def finish_recording() -> None:
+    if not state["recording"]:
+        return
+    
+    # Reset model state
+    for model_obj in state["oww_model"].models.values():
+        if hasattr(model_obj, 'reset'):
+            model_obj.reset()
+    if hasattr(state["oww_model"], 'prediction_buffer'):
+        for key in state["oww_model"].prediction_buffer:
+            state["oww_model"].prediction_buffer[key] = [0.0] * len(state["oww_model"].prediction_buffer[key])
+    
     frames    = state["recorded_frames"]
     wake_word = state["wake_word"]
     state["recording"]       = False
@@ -324,7 +343,15 @@ def finish_recording() -> None:
     state["record_start"]    = None
     state["wake_word"]       = "unknown"
     state["processing"]      = True
-    sample_buffer.clear()  # ← clear immediately
+    sample_buffer.clear()
+    global resampler
+    resampler = soxr.ResampleStream(
+        in_rate=MIC_RATE,
+        out_rate=TARGET_RATE,
+        num_channels=CHANNELS,
+        quality="HQ",
+        dtype="int16",
+    )
 
     if frames:
         filename = save_recording(frames, wake_word)
@@ -397,13 +424,17 @@ def main():
                 response = model_return(text)
                 print("[RESPONSE]", response)
 
-                play_audio(response)  # stream already stopped, no feedback loop
+                play_audio(response)
 
-                time.sleep(0.5)       # longer settle time
                 sample_buffer.clear()
                 state["oww_model"].reset()
+                state["skip_chunks"] = int(np.ceil(15.0 * TARGET_RATE / OWW_CHUNK))
                 state["processing"] = False
-                stream.start_stream()
+                stream.start_stream()  # now safe — skip_chunks is already set
+
+                time.sleep(0.5)
+                sample_buffer.clear()  # second clear after any immediate flush
+                state["skip_chunks"] = 50
 
             time.sleep(0.05)
     except KeyboardInterrupt:
