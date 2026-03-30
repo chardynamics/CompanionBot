@@ -69,7 +69,6 @@ SILENCE_THRESHOLD   = 3000
 # Where to save recordings
 OUTPUT_DIR          = "recordings"
 
-chunk_id = 0
 # ──────────────────────────────────────────────
 # State
 # ──────────────────────────────────────────────
@@ -90,11 +89,9 @@ state = {
     "silence_start":    None,
     "record_start":     None,
     "wake_word":        "unknown",
-    "stream":    None,   # set after stream is created
-    "pa":        None,
     "oww_model": None,
-    "needs_processing": False,  # ← add this
-    "pending_filename": None,   # ← and this
+    "needs_processing": False,
+    "pending_filename": None,
     "processing": False,
     "skip_chunks": 0,
 }
@@ -160,21 +157,24 @@ def drain_buffer(model: Model) -> None:
             [sample_buffer.popleft() for _ in range(OWW_CHUNK)],
             dtype=np.int16,
         )
-        if state.get("skip_chunks", 0) > 0:
+        if state["skip_chunks"] > 0:
             state["skip_chunks"] -= 1
-            model.predict(chunk)  # flush model state but don't act on scores
+            model.predict(chunk)
             continue
-        
-        print(f"[CHUNK] remaining_buffer={len(sample_buffer)}")
+
         predictions = model.predict(chunk)
+        
+        # Only log the highest scoring model this chunk
+        best_word, best_score = max(predictions.items(), key=lambda x: x[1])
+        if best_score > 0.1:  # ignore near-zero noise
+            print(f"[PRED] {best_word}: {best_score:.3f}")
+
         for wake_word, score in predictions.items():
-            print(f"[PRED] {wake_word}: {score:.3f}")
-            print(f"[STATE] rec={state['recording']} proc={state['processing']} needs={state['needs_processing']}")
             if (score >= DETECTION_THRESHOLD
                     and not state["recording"]
                     and not state["processing"]
                     and not state["needs_processing"]):
-                print(f"[DETECTED] '{wake_word}' score={score:.3f} time={time.time():.3f}")
+                print(f"[DETECTED] '{wake_word}' score={score:.3f}")
                 start_recording(wake_word)
 
 
@@ -227,7 +227,8 @@ def audio_callback(
     else:
         resampled = resampler.resample_chunk(mic_audio, last=False)
         sample_buffer.extend(resampled.tolist())
-        print(f"[BUFFER] size={len(sample_buffer)}")
+        if len(sample_buffer) > OWW_CHUNK * 3:
+            print(f"[BUFFER WARNING] size={len(sample_buffer)}")
         drain_buffer(oww_model)
 
     return (None, pyaudio.paContinue)
@@ -393,7 +394,6 @@ def main():
                 in_data, frame_count, time_info, status, oww_model=oww_model
             ),
     )
-    state["stream"] = stream
 
     print(
         f"\nListening …  "
@@ -427,13 +427,11 @@ def main():
                 play_audio(response)
 
                 sample_buffer.clear()
-                state["oww_model"].reset()
                 state["skip_chunks"] = int(np.ceil(15.0 * TARGET_RATE / OWW_CHUNK))
                 state["processing"] = False
                 stream.start_stream()  # now safe — skip_chunks is already set
 
                 time.sleep(0.5)
-                sample_buffer.clear()  # second clear after any immediate flush
                 state["skip_chunks"] = 50
 
             time.sleep(0.05)
