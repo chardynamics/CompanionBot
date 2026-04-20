@@ -36,7 +36,7 @@ messages = [
         "content": [
             {
                 "type": "input_text",
-                "text": "Always respond in concise, short messages as you are a companion robot."
+                "text": "Always respond in concise, short messages as you are a companion robot, 1-2 sentences long"
             }
         ],
     }
