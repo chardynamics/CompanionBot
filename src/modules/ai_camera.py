@@ -7,6 +7,7 @@ import numpy as np
 from picamera2 import MappedArray, Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics, postprocess_nanodet_detection
+import base64, io
 
 class IMX500Detector:
     def __init__(self, model_path="src/models/imx500_network_yolo11n_pp.rpk"):
@@ -136,6 +137,28 @@ class IMX500Detector:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1
                 )
                 cv2.rectangle(m.array, (x, y), (x + w, y + h), (0, 255, 0, 0), thickness=2)
+
+    def capture_image_b64(self) -> str:
+        """Capture a JPEG from the camera and return it as a base64 string."""
+        buffer = io.BytesIO()
+        self.picam2.capture_file(buffer, format="jpeg")
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    def get_objects_detected(self) -> str:
+        """Return a human-readable string of currently detected objects."""
+        detections = self.get_detections()
+        labels = self.get_labels()
+
+        if not detections:
+            return "No objects detected."
+
+        counts = {}
+        for d in detections:
+            label = labels[int(d.category)]
+            counts[label] = counts.get(label, 0) + 1
+
+        parts = [f"{count}x {label}" for label, count in counts.items()]
+        return "Detected: " + ", ".join(parts) + "."
 
 class Detection:
     def __init__(self, coords, category, conf, metadata, imx500, picam2):

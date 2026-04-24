@@ -20,14 +20,14 @@ FUNCTIONS = {
 
 # --- Describe tools to the model ---
 TOOLS_DESCRIPTION = """
-You are a helpful assistant. When the user asks something, respond ONLY with a JSON object (no extra text, no markdown) in this format:
+You are a helpful assistant. When the user asks something that would use these tools, respond ONLY with a JSON object (no extra text, no markdown) in this format:
 {
   "tool": "<tool_name>",
   "args": { "<arg_name>": <value>, ... }
 }
 
 Available tools:
-- get_weather(city: str) — gets the weather for a city
+- get_battery() — gets the battery level
 - add_numbers(a: int, b: int) — adds two numbers together
 
 If no tool applies, use:
