@@ -2,26 +2,32 @@ from src.modules.ai_camera import IMX500Detector
 import time
 
 camera = IMX500Detector()
-
-# Start the detector with preview window
 camera.start(show_preview=True)
 
-# Main loop
 while True:
-    # Get the latest detections
     detections = camera.get_detections()
-    
-    # Get the labels for reference
     labels = camera.get_labels()
-    
-    # Process each detection
-    for detection in detections:
-        label = labels[int(detection.category)]
-        confidence = detection.conf
-        
-        # Example: Print when a person is detected with high confidence
-        if label == "person" and confidence > 0.4:
-            print(f"Person detected with {confidence:.2f} confidence!")
-    
-    # Small delay to prevent overwhelming the system
+
+    if detections:
+        print(f"\n--- {len(detections)} object(s) detected ---")
+        for detection in detections:
+            label = labels[int(detection.category)]
+            confidence = detection.conf
+
+            # Get bounding box coordinates
+            # IMX500 typically returns box as (x, y, width, height) or (x1, y1, x2, y2)
+            box = detection.box  # or detection.bbox depending on your SDK version
+
+            # If box is (x, y, w, h) — center calculation:
+            x = box[0] + box[2] / 2
+            y = box[1] + box[3] / 2
+
+            # If box is (x1, y1, x2, y2) — use this instead:
+            # x = (box[0] + box[2]) / 2
+            # y = (box[1] + box[3]) / 2
+
+            print(f"  {label:<20} conf: {confidence:.2f}  center: ({x:.1f}, {y:.1f})  box: {box}")
+    else:
+        print("No detections")
+
     time.sleep(0.1)
