@@ -4,8 +4,8 @@ import os
 import time
 import wave
 import io
-#import board
-#import neopixel
+import board
+import neopixel
 import threading
 import pygame
 import subprocess
@@ -13,7 +13,7 @@ import subprocess
 from dotenv import load_dotenv
 #from ina219 import INA219
 #from adafruit_servokit import ServoKit
-#from src.modules.ai_camera import IMX500Detector
+from src.modules.ai_camera import IMX500Detector
 from piper.voice import PiperVoice
 
 
@@ -29,22 +29,29 @@ load_dotenv()
 #readings = ina.getReadings()
 defaultThrottle = 0.2
 
-#detector = IMX500Detector()
-#detector.start()
+detector = IMX500Detector()
+detector.start()
 pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
 
 # Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
 # NeoPixels must be connected to D10, D12, D18 or D21 to work.
-#pixel_pin = board.D12
+pixel_pin = board.D12
 num_pixels = 5
 
 # The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
 # For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
-#ORDER = neopixel.GRB
+ORDER = neopixel.GRB
 
-#pixels = neopixel.NeoPixel(
-#    pixel_pin, num_pixels, brightness=0.2, auto_write=False, pixel_order=ORDER
-#)
+pixels = neopixel.NeoPixel(
+    pixel_pin, num_pixels, brightness=0.2, auto_write=False, pixel_order=ORDER
+)
+
+PULSES_PER_REV = 20        # replace with your calibrated value
+WHEEL_DIAMETER_CM = 6.4    # measure your actual wheel
+WHEELBASE_CM = 15.0        # measure left wheel to right wheel
+
+WHEEL_CIRCUMFERENCE_CM = 3.14159 * WHEEL_DIAMETER_CM
+CM_PER_PULSE = WHEEL_CIRCUMFERENCE_CM / PULSES_PER_REV
 
 _lightshow_thread = None
 _lightshow_stop = threading.Event()
@@ -59,7 +66,7 @@ def play_audio(response):
             wav_file.writeframes(audio_chunk.audio_int16_bytes)
 
     print(f"Audio saved to {OUTPUT_FILENAME}")
-    subprocess.run(["afplay", OUTPUT_FILENAME], check=True)
+    subprocess.run(["aplay", OUTPUT_FILENAME], check=True)
 
 def _lightshow_loop():
     """Runs in background thread until stop event is set."""
@@ -99,9 +106,13 @@ def rainbow_cycle(wait):
 
 def take_picture(prompt: str):
     image_b64 = detector.capture_image_b64()
-
+    url = "https://ai.hackclub.com/proxy/v1/responses"
+    headers={
+        "Authorization": f"Bearer {os.getenv('HACKCLUB_API_KEY')}",
+        "Content-Type": "application/json",
+    }
     data = {
-        "model": model,
+        "model": "google/gemini-2.5-flash-lite-preview-09-2025",
         "input": [
             {
                 "type": "message",
@@ -115,12 +126,17 @@ def take_picture(prompt: str):
                         "type": "input_text",
                         "text": prompt,
                     },
+                    {
+                        "type": "input_text",
+                        "text": "When responding, don't use any special characters that aren't words or punctuation, your response will be played through TTS.",
+                    },
                 ],
             }
         ],
     }
     req = requests.post(url, headers=headers, json=data, timeout=30)
     result = req.json()
+    print(f"Model raw response: {result}")
     play_audio(result["output"][0]["content"][0]["text"])
 
 def get_objects_detected():
@@ -156,21 +172,51 @@ def spin():
     time.sleep(2)
     Movement(turn="right", offset=0.0)
 
-def move(direction: str, seconds: float):
+def move(direction: str, distance_cm: float):
+    # Reset counts
+    for key in encoder_counts:
+        encoder_counts[key] = 0
+
+    target_pulses = distance_cm / CM_PER_PULSE
+
     if direction == "forward":
         Movement(turn="forward", offset=0.2)
     elif direction == "backward":
         Movement(turn="backward", offset=0.2)
-    time.sleep(seconds)
-    Movement(turn="left", offset=0.0)
 
-def turn(direction: str, seconds: float):
+    # Wait until average pulse count hits target
+    while True:
+        avg = sum(encoder_counts.values()) / len(encoder_counts)
+        if avg >= target_pulses:
+            break
+        time.sleep(0.005)
+
+    Movement(turn="left", offset=0.0)  # stop
+
+def turn(direction: str, degrees: float):
+    for key in encoder_counts:
+        encoder_counts[key] = 0
+
+    # Arc length the outer wheels need to travel for the given angle
+    arc_cm = (degrees / 360.0) * 3.14159 * WHEELBASE_CM
+    target_pulses = arc_cm / CM_PER_PULSE
+
     if direction == "left":
         Movement(turn="left", offset=0.2)
     elif direction == "right":
         Movement(turn="right", offset=0.2)
-    time.sleep(seconds) 
-    Movement(turn="left", offset=0.0)
+
+    while True:
+        # Use the faster (outer) wheels as the reference
+        if direction == "left":
+            avg = (encoder_counts["fl"] + encoder_counts["rl"]) / 2
+        else:
+            avg = (encoder_counts["fr"] + encoder_counts["rr"]) / 2
+        if avg >= target_pulses:
+            break
+        time.sleep(0.005)
+
+    Movement(turn="left", offset=0.0)  # stop
 
 def tail_lightshow():
     global _lightshow_thread
@@ -381,7 +427,7 @@ FUNCTIONS = {
 
 # --- Describe tools to the model ---
 TOOLS_DESCRIPTION = """
-You are a helpful assistant. When the user asks something that would use these tools, respond ONLY with a JSON object (no extra text, no markdown) in this format:
+You are a helpful assistant on a robot dog. When the user asks something that would use these tools, respond ONLY with a JSON object (no extra text, no markdown) in this format:
 {
   "tool": "<tool_name>",
   "args": { "<arg_name>": <value>, ... }
@@ -389,14 +435,14 @@ You are a helpful assistant. When the user asks something that would use these t
 
 Available tools:
 - get_battery() — returns a string describing the current battery level and readings from the INA219 sensor
-- take_picture(prompt: str) — takes a picture with the camera and uses the prompt argument and photo to respond to the user
+- take_picture(prompt: str) — uses the camera to take a photo and uses the prompt argument and photo to respond to the user with whatever extra they asked about what the camera sees (e.g. "what's in front of me?" or "make a joke about what you see")
 - spin() - makes the robot spin in a circle
 - turn(direction: str, seconds: float) - turns the robot in the specified direction ("left" or "right") for a specified number of seconds
 - move(direction: str, seconds: float) - moves the robot forward by direction ("forward" or "backward") for a specified number of seconds
 - predictive_driving(prompt: str) - takes a photo using the camera and uses the prompt and photo to move a series of turns
-- get_objects_detected() - uses the camera to return a list of objects currently detected around the robot
+- get_objects_detected() - returns name of objects currently detected in front of the robot, only use when there isn't anything else in the prompt that would rather be another prompt for take_picture()
 - follow_person() - uses the camera to identify and follow a person in front of the robot
-- z() - running it flips it on or off
+- tail_lightshow() - running it flips it on or off
 - play_music(song: str) - plays a song through the robot's speakers
 
 If no tool applies, use:
@@ -448,6 +494,7 @@ def model_return(text):
 
     # Extract text from the /responses endpoint format
     raw = result["output"][0]["content"][0]["text"]
+    print(f"Model raw response: {raw}")
 
     # Append assistant reply to history
     messages.append({
@@ -474,4 +521,4 @@ def model_return(text):
     result = FUNCTIONS[tool_name](**args)
     return str(result)
 
-print(model_return("Play one dance by drake"))
+print(model_return("Make a joke with the things you see"))

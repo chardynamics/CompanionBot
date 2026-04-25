@@ -10,6 +10,11 @@ from adafruit_servokit import ServoKit
 kit = ServoKit(channels=16)
 
 while True:
+    kit.servo[2].angle = 0
+    time.sleep(1)
+    time.sleep(1)
+    kit.servo[2].angle = 180
+    
     speed = float(input("Enter the speed (0.2 is nothing): "))
-    for i in range(11, 15):
+    for i in range(14, 15):
         kit.continuous_servo[i].throttle = speed

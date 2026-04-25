@@ -13,9 +13,11 @@ import wave
 from collections import deque
 from openwakeword.model import Model
 import subprocess
+import base64
+import io
 
 from dotenv import load_dotenv
-from ina219 import INA219
+#from ina219 import INA219
 from adafruit_servokit import ServoKit
 from picamera2 import Picamera2
 from src.modules.ai_camera import IMX500Detector
@@ -78,8 +80,8 @@ voice = PiperVoice.load(model_path)
 load_dotenv()
 kit = ServoKit(channels=16)
 
-ina = INA219(addr=0x41)
-readings = ina.getReadings()
+#ina = INA219(addr=0x41)
+#readings = ina.getReadings()
 defaultThrottle = 0.2
 
 detector = IMX500Detector()
@@ -323,9 +325,13 @@ def rainbow_cycle(wait):
 
 def take_picture(prompt: str):
     image_b64 = detector.capture_image_b64()
-
+    url = "https://ai.hackclub.com/proxy/v1/responses"
+    headers={
+        "Authorization": f"Bearer {os.getenv('HACKCLUB_API_KEY')}",
+        "Content-Type": "application/json",
+    }
     data = {
-        "model": model,
+        "model": "google/gemini-2.5-flash-lite-preview-09-2025",
         "input": [
             {
                 "type": "message",
@@ -339,12 +345,17 @@ def take_picture(prompt: str):
                         "type": "input_text",
                         "text": prompt,
                     },
+                    {
+                        "type": "input_text",
+                        "text": "When responding, don't use any special characters that aren't words or punctuation, your response will be played through TTS. Also make responses roughly 2-3 sentences long.",
+                    },
                 ],
             }
         ],
     }
     req = requests.post(url, headers=headers, json=data, timeout=30)
     result = req.json()
+    print(f"Model raw response: {result}")
     play_audio(result["output"][0]["content"][0]["text"])
 
 def get_objects_detected():
@@ -605,7 +616,7 @@ FUNCTIONS = {
 
 # --- Describe tools to the model ---
 TOOLS_DESCRIPTION = """
-You are a helpful assistant. When the user asks something that would use these tools, respond ONLY with a JSON object (no extra text, no markdown) in this format:
+You are a helpful assistant on a robot dog. When the user asks something that would use these tools, respond ONLY with a JSON object (no extra text, no markdown) in this format:
 {
   "tool": "<tool_name>",
   "args": { "<arg_name>": <value>, ... }
@@ -613,12 +624,12 @@ You are a helpful assistant. When the user asks something that would use these t
 
 Available tools:
 - get_battery() — returns a string describing the current battery level and readings from the INA219 sensor
-- take_picture(prompt: str) — takes a picture with the camera and uses the prompt argument and photo to respond to the user
+- take_picture(prompt: str) — uses the camera to take a photo and uses the prompt argument and photo to respond to the user with whatever extra they asked about what the camera sees (e.g. "what's in front of me?" or "make a joke about what you see")
 - spin() - makes the robot spin in a circle
 - turn(direction: str, seconds: float) - turns the robot in the specified direction ("left" or "right") for a specified number of seconds
 - move(direction: str, seconds: float) - moves the robot forward by direction ("forward" or "backward") for a specified number of seconds
 - predictive_driving(prompt: str) - takes a photo using the camera and uses the prompt and photo to move a series of turns
-- get_objects_detected() - uses the camera to return a list of objects currently detected around the robot
+- get_objects_detected() - returns name of objects currently detected in front of the robot, only use when there isn't anything else in the prompt that would rather be another prompt for take_picture()
 - follow_person() - uses the camera to identify and follow a person in front of the robot
 - tail_lightshow() - running it flips it on or off
 - play_music(song: str) - plays a song through the robot's speakers

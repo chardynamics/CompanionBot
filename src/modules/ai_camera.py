@@ -4,6 +4,7 @@ import sys
 from functools import lru_cache
 import cv2
 import numpy as np
+import time
 from picamera2 import MappedArray, Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics, postprocess_nanodet_detection
@@ -41,7 +42,7 @@ class IMX500Detector:
         """Start the detector"""
         config = self.picam2.create_preview_configuration(
             controls={"FrameRate": self.intrinsics.inference_rate}, 
-            buffer_count=12
+            buffer_count=4
         )
         
         self.imx500.show_network_fw_progress_bar()
@@ -145,8 +146,15 @@ class IMX500Detector:
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     def get_objects_detected(self) -> str:
-        """Return a human-readable string of currently detected objects."""
-        detections = self.get_detections()
+        # Warm up: poll until we get at least one non-empty frame, or timeout
+        deadline = time.time() + 5.0  # 5 second max wait
+        detections = []
+        while time.time() < deadline:
+            detections = self.get_detections()
+            if detections:
+                break
+            time.sleep(0.1)
+
         labels = self.get_labels()
 
         if not detections:
