@@ -15,6 +15,6 @@ while True:
     time.sleep(1)
     kit.servo[2].angle = 180
     
-    speed = float(input("Enter the speed (0.2 is nothing): "))
+    """speed = float(input("Enter the speed (0.2 is nothing): "))
     for i in range(14, 15):
-        kit.continuous_servo[i].throttle = speed
+        kit.continuous_servo[i].throttle = speed"""

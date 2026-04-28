@@ -48,7 +48,7 @@ pixels = neopixel.NeoPixel(
 
 PULSES_PER_REV = 20        # replace with your calibrated value
 WHEEL_DIAMETER_CM = 6.4    # measure your actual wheel
-WHEELBASE_CM = 15.0        # measure left wheel to right wheel
+WHEELBASE_CM = 26.5        # measure left wheel to right wheel
 
 WHEEL_CIRCUMFERENCE_CM = 3.14159 * WHEEL_DIAMETER_CM
 CM_PER_PULSE = WHEEL_CIRCUMFERENCE_CM / PULSES_PER_REV
