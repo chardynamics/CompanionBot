@@ -1,30 +1,36 @@
-import RPi.GPIO as GPIO
+import lgpio
+import time
 
-GPIO.setwarnings(False)
-GPIO.cleanup()
-GPIO.setmode(GPIO.BCM)
-
-ENCODER_PINS = {
+FEEDBACK_PINS = {
     "fl": 6,
-    "fr": 13, 
+    "fr": 13,
     "rl": 23,
     "rr": 22,
 }
 
-#encoder_counts = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
-encoder_counts = {"fr": 0, "rl": 0, "rr": 0}
+h = lgpio.gpiochip_open(0)
 
-PULSES_PER_REV = 20
-WHEEL_DIAMETER_CM = 6.4
-WHEEL_CIRCUMFERENCE_CM = 3.14159 * WHEEL_DIAMETER_CM
-CM_PER_PULSE = WHEEL_CIRCUMFERENCE_CM / PULSES_PER_REV
+for name, pin in FEEDBACK_PINS.items():
+    lgpio.gpio_claim_input(h, pin)
 
-def _encoder_callback(channel, name):
-    encoder_counts[name] += 1
+def read_duty_cycle(pin):
+    # Measure high and low pulse widths
+    while lgpio.gpio_read(h, pin) == 1:
+        pass
+    while lgpio.gpio_read(h, pin) == 0:
+        pass
+    high_start = time.monotonic_ns()
+    while lgpio.gpio_read(h, pin) == 1:
+        pass
+    high_time = time.monotonic_ns() - high_start
+    while lgpio.gpio_read(h, pin) == 0:
+        pass
+    total_time = time.monotonic_ns() - high_start
+    return (high_time / total_time) * 100
 
-for name, pin in ENCODER_PINS.items():
-    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.add_event_detect(
-        pin, GPIO.RISING,
-        callback=lambda channel, n=name: _encoder_callback(channel, n)
-    )
+while True:
+    for name, pin in FEEDBACK_PINS.items():
+        dc = read_duty_cycle(pin)
+        angle = (dc / 100) * 360
+        print(f"{name}: duty={dc:.1f}% angle={angle:.1f}°")
+    time.sleep(0.1)
