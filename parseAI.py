@@ -15,6 +15,7 @@ from openwakeword.model import Model
 import subprocess
 import base64
 import io
+from PIL import Image
 
 from dotenv import load_dotenv
 #from ina219 import INA219
@@ -358,6 +359,63 @@ def take_picture(prompt: str):
     print(f"Model raw response: {result}")
     play_audio(result["output"][0]["content"][0]["text"])
 
+def imageGen(prompt: str, image: bool = False):
+    url = "https://ai.hackclub.com/proxy/v1/responses"
+    headers={
+        "Authorization": f"Bearer {os.getenv('HACKCLUB_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    if image:
+        image_b64 = detector.capture_image_b64()
+        json={
+            "model": "openai/gpt-5.4-image-2",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                        "url": f"data:image/jpeg;base64,{image_data}"
+                        }
+                    }
+                ]
+            }]
+            "modalities": ["image", "text"],
+            "size": "320x240"
+        }
+    else:
+        json={
+            "model": "openai/gpt-5.4-image-2",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                ]
+            }]
+            "modalities": ["image", "text"],
+            "size": "320x240"
+        }
+    req = requests.post(url, headers=headers, json=data, timeout=30)
+    result = req.json()
+    print(f"Model raw response: {result}")
+    if result.get("choices"):
+    message = result["choices"][0]["message"]
+
+    if message.get("images"):
+        image_url = message["images"][0]["image_url"]["url"]
+
+        # Handle data URI prefix
+        base64_data = image_url.split(",")[1] if "," in image_url else image_url
+        image_bytes = base64.b64decode(base64_data)
+
+        # Downscale to 320x240 using Pillow
+        img = Image.open(io.BytesIO(image_bytes))
+        img_resized = img.resize((320, 240), Image.LANCZOS)
+        img_resized.save("output_image.jpg")
+
+        print(f"Saved! Original: {img.size} → Resized: {img_resized.size}")
+
 def get_objects_detected():
     play_audio(detector.get_objects_detected())
 
@@ -612,6 +670,7 @@ FUNCTIONS = {
     "get_objects_detected": get_objects_detected,
     "predictive_driving": predictive_driving,
     "move": move,
+    "imageGen": imageGen
 }
 
 # --- Describe tools to the model ---
@@ -633,6 +692,7 @@ Available tools:
 - follow_person() - uses the camera to identify and follow a person in front of the robot
 - tail_lightshow() - running it flips it on or off
 - play_music(song: str) - plays a song through the robot's speakers
+- imageGen(prompt: str, image: bool) - generates an image based on the prompt that will be displayed on the robot's screen, can optionally take into account to include the camera as input if image=true
 
 If no tool applies, use:
 { "tool": "none", "args": {}, "response": "your plain text answer here" }
