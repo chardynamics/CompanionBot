@@ -361,60 +361,63 @@ def take_picture(prompt: str):
 
 def imageGen(prompt: str, image: bool = False):
     url = "https://ai.hackclub.com/proxy/v1/responses"
-    headers={
+    headers = {
         "Authorization": f"Bearer {os.getenv('HACKCLUB_API_KEY')}",
         "Content-Type": "application/json",
     }
+
     if image:
         image_b64 = detector.capture_image_b64()
-        json={
+        json = {
             "model": "openai/gpt-5.4-image-2",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                        "url": f"data:image/jpeg;base64,{image_data}"
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}"
+                            }
                         }
-                    }
-                ]
-            }]
+                    ]
+                }
+            ],
             "modalities": ["image", "text"],
             "size": "320x240"
         }
     else:
-        json={
+        json = {
             "model": "openai/gpt-5.4-image-2",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                ]
-            }]
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                    ]
+                }
+            ],
             "modalities": ["image", "text"],
             "size": "320x240"
         }
-    req = requests.post(url, headers=headers, json=data, timeout=30)
+
+    req = requests.post(url, headers=headers, json=json, timeout=30)
     result = req.json()
     print(f"Model raw response: {result}")
+
     if result.get("choices"):
-    message = result["choices"][0]["message"]
-
-    if message.get("images"):
-        image_url = message["images"][0]["image_url"]["url"]
-
-        # Handle data URI prefix
-        base64_data = image_url.split(",")[1] if "," in image_url else image_url
-        image_bytes = base64.b64decode(base64_data)
-
-        # Downscale to 320x240 using Pillow
-        img = Image.open(io.BytesIO(image_bytes))
-        img_resized = img.resize((320, 240), Image.LANCZOS)
-        img_resized.save("output_image.jpg")
-
-        print(f"Saved! Original: {img.size} → Resized: {img_resized.size}")
+        message = result["choices"][0]["message"]
+        if message.get("images"):
+            image_url = message["images"][0]["image_url"]["url"]
+            # Handle data URI prefix
+            base64_data = image_url.split(",")[1] if "," in image_url else image_url
+            image_bytes = base64.b64decode(base64_data)
+            # Downscale to 320x240 using Pillow
+            img = Image.open(io.BytesIO(image_bytes))
+            img_resized = img.resize((320, 240), Image.LANCZOS)
+            img_resized.save("output_image.jpg")
+            print(f"Saved! Original: {img.size} → Resized: {img_resized.size}")
 
 def get_objects_detected():
     play_audio(detector.get_objects_detected())

@@ -11,7 +11,7 @@ import pygame
 import subprocess
 
 from dotenv import load_dotenv
-#from ina219 import INA219
+from ina219 import INA219
 #from adafruit_servokit import ServoKit
 from src.modules.ai_camera import IMX500Detector
 from piper.voice import PiperVoice
@@ -25,8 +25,8 @@ SAMPLE_RATE = 22050
 load_dotenv()
 #kit = ServoKit(channels=16)
 
-#ina = INA219(addr=0x41)
-#readings = ina.getReadings()
+ina = INA219(addr=0x41)
+readings = ina.getReadings()
 defaultThrottle = 0.2
 
 detector = IMX500Detector()
@@ -521,4 +521,4 @@ def model_return(text):
     result = FUNCTIONS[tool_name](**args)
     return str(result)
 
-print(model_return("Make a joke with the things you see"))
+print(model_return("What is the battery percentage"))

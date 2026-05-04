@@ -14,8 +14,8 @@ response = requests.post(
         "Content-Type": "application/json"
     },
     json={
-        #"model": "openai/gpt-5.4-image-2",
-        "model": "google/gemini-3-pro-image-preview",
+        "model": "openai/gpt-5.4-image-2",
+        #"model": "google/gemini-3-pro-image-preview",
         "messages": [
             {
                 "role": "user",
