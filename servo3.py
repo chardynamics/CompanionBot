@@ -30,26 +30,18 @@ from adafruit_servokit import ServoKit
 # (PCA9685 channel, inverted?)
 # Right-side servos are mounted mirrored so their direction is flipped.
 SERVO_CHANNELS = {
-    "front_left":  (0, False),
-    "front_right": (1, True),
-    "rear_left":   (2, False),
-    "rear_right":  (3, True),
+    "front_left":  (1, False),
+    "front_right": (14, True),
+    "rear_left":   (0, False),
+    "rear_right":  (13, True),
 }
 
 # BCM GPIO pins for the yellow feedback wires
 FEEDBACK_PINS = {
-    "front_left":  17,
-    "front_right": 27,
+    "front_left":  6,
+    "front_right": 13,
     "rear_left":   22,
     "rear_right":  23,
-}
-
-
-ENCODER_PINS = {
-    "fl": 6,
-    "fr": 13,
-    "rl": 23,
-    "rr": 22,
 }
 
 # ---------------------------------------------------------------------------
@@ -58,6 +50,7 @@ ENCODER_PINS = {
 
 WHEEL_DIAMETER_MM = 60.0    # outer diameter of one wheel (mm)
 TRACK_WIDTH_MM    = 120.0   # centre-to-centre distance between left and right wheels (mm)
+
 
 WHEEL_CIRCUMFERENCE_MM = math.pi * WHEEL_DIAMETER_MM
 
@@ -182,10 +175,14 @@ class Servo360:
                  pi: pigpio.pi, name: str = "servo", inverted: bool = False):
         self.name      = name
         self._inverted = inverted
+        # Inverted servos spin physically backwards for a given throttle,
+        # so their feedback counts down when we command "forward".
+        # odo_sign flips the reading back so distance_mm is always positive
+        # when the robot moves forward.
+        self._odo_sign = -1.0 if inverted else 1.0
         self._servo    = kit.continuous_servo[channel]
         self._servo.set_pulse_width_range(PULSE_MIN_US, PULSE_MAX_US)
         self._feedback = FeedbackReader(pi, feedback_pin)
-
     def set_speed(self, speed: float):
         """speed: -1.0 = full reverse, 0.0 = stop, +1.0 = full forward"""
         speed = max(-1.0, min(1.0, speed))
@@ -200,11 +197,11 @@ class Servo360:
 
     @property
     def total_degrees(self) -> float:
-        return self._feedback.total_degrees
+        return self._feedback.total_degrees * self._odo_sign
 
     @property
     def distance_mm(self) -> float:
-        return self._feedback.distance_mm
+        return self._feedback.distance_mm * self._odo_sign
 
     def reset_odometry(self):
         self._feedback.reset_odometry()
@@ -368,7 +365,15 @@ class RoboticDog:
     # -- Cleanup -------------------------------------------------------------
 
     def cleanup(self):
+        # Send stop pulse to all servos
         self.stop_all()
+        # Wait long enough for the PCA9685 to latch the stop pulse
+        # (one PWM cycle at 50 Hz = 20 ms; 100 ms is a safe margin)
+        time.sleep(0.1)
+        # Disable every PCA9685 channel so it outputs no pulse at all,
+        # rather than holding the last value after Python exits
+        for channel in range(16):
+            self.kit.continuous_servo[channel].fraction = None
         for s in self.servos.values():
             s.cleanup()
         self._pi.stop()

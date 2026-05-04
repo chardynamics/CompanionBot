@@ -9,6 +9,7 @@ from adafruit_servokit import ServoKit
 # 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 kit = ServoKit(channels=16)
 
-while True:
-    for i in range(0, 15):
-        kit.continuous_servo[i].throttle = 0.2
+kit.servo[11].angle = 0
+time.sleep(1)
+time.sleep(1)
+kit.servo[11].angle = 180
