@@ -358,7 +358,7 @@ class RoboticDog:
 def main():
     dog = RoboticDog()
     try:
-        dog.travel_distance_mm(100, speed=0.4)
+        dog.turn_degrees(90, speed=0.4)
         dog.print_status()
  
     except KeyboardInterrupt:
