@@ -5,6 +5,7 @@ import time
 import random
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import json
 
 # --- Screen config ---
 SCREEN_W, SCREEN_H = 320, 240

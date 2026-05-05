@@ -171,7 +171,7 @@ class INA219:
 
 
 if __name__ == '__main__':
-    ina219 = INA219(addr=0x41)
+    ina219 = INA219(addr=0x40)
     while True:
         readings = ina219.getReadings()
         for line in readings['formatted'].values():

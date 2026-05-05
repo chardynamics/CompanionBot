@@ -18,11 +18,12 @@ import io
 from PIL import Image
 
 from dotenv import load_dotenv
-#from ina219 import INA219
+from src.UPS import INA219
 from adafruit_servokit import ServoKit
 from picamera2 import Picamera2
 from src.modules.ai_camera import IMX500Detector
 from piper.voice import PiperVoice
+import json
 
 MIC_RATE            = 44100     # Hardware capture rate (Hz)
 TARGET_RATE         = 16000     # openWakeWord expected rate (Hz)
@@ -75,14 +76,21 @@ state = {
     "skip_chunks": 0,
 }
 
+SCREEN_STATE_FILE = "/tmp/screen_state.json"
+
+def update_screen(event: str, data: dict = {}):
+    payload = {"event": event, "data": data, "timestamp": time.time()}
+    with open(SCREEN_STATE_FILE, "w") as f:
+        json.dump(payload, f)
+
 model_path = os.path.expanduser("~/CompanionBot/src/models/en_US-amy-medium.onnx")
 voice = PiperVoice.load(model_path)
 
 load_dotenv()
 kit = ServoKit(channels=16)
 
-#ina = INA219(addr=0x41)
-#readings = ina.getReadings()
+ina = INA219(addr=0x40)
+readings = ina.getReadings()
 defaultThrottle = 0.2
 
 detector = IMX500Detector()
@@ -101,9 +109,6 @@ ORDER = neopixel.GRB
 pixels = neopixel.NeoPixel(
     pixel_pin, num_pixels, brightness=0.2, auto_write=False, pixel_order=ORDER
 )
-
-_lightshow_thread = None
-_lightshow_stop = threading.Event()
 
 def measure_noise_floor(pa, duration=2.0):
     """Record a few seconds of silence at startup to calibrate."""
@@ -288,10 +293,6 @@ def play_audio(response):
     print(f"Audio saved to {OUTPUT_FILENAME}")
     subprocess.run(["aplay", OUTPUT_FILENAME], check=True)
 
-def _lightshow_loop():
-    """Runs in background thread until stop event is set."""
-    while not _lightshow_stop.is_set():
-        rainbow_cycle(0.001)
 
 def wheel(pos):
     # Input a value 0 to 255 to get a color value.
@@ -359,50 +360,31 @@ def take_picture(prompt: str):
     print(f"Model raw response: {result}")
     play_audio(result["output"][0]["content"][0]["text"])
 
-def imageGen(prompt: str, image: bool = False):
-    url = "https://ai.hackclub.com/proxy/v1/responses"
+def generateImage(prompt: str, image: bool = False):
+    url = "https://ai.hackclub.com/proxy/v1/chat/completions"  # ← was /v1/responses
     headers = {
         "Authorization": f"Bearer {os.getenv('HACKCLUB_API_KEY')}",
         "Content-Type": "application/json",
     }
 
+    content = [{"type": "text", "text": prompt}]
+
     if image:
         image_b64 = detector.capture_image_b64()
-        json = {
-            "model": "openai/gpt-5.4-image-2",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_b64}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            "modalities": ["image", "text"],
-            "size": "320x240"
-        }
-    else:
-        json = {
-            "model": "openai/gpt-5.4-image-2",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                    ]
-                }
-            ],
-            "modalities": ["image", "text"],
-            "size": "320x240"
-        }
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}
+        })
 
-    req = requests.post(url, headers=headers, json=json, timeout=30)
+    payload = {
+        "model": "openai/gpt-5.4-image-2",
+        #"model": "google/gemini-3-pro-image-preview",
+        "messages": [{"role": "user", "content": content}],
+        "modalities": ["image", "text"],
+        "size": "320x240"
+    }
+
+    req = requests.post(url, headers=headers, json=payload, timeout=60)
     result = req.json()
     print(f"Model raw response: {result}")
 
@@ -410,19 +392,20 @@ def imageGen(prompt: str, image: bool = False):
         message = result["choices"][0]["message"]
         if message.get("images"):
             image_url = message["images"][0]["image_url"]["url"]
-            # Handle data URI prefix
             base64_data = image_url.split(",")[1] if "," in image_url else image_url
             image_bytes = base64.b64decode(base64_data)
-            # Downscale to 320x240 using Pillow
             img = Image.open(io.BytesIO(image_bytes))
             img_resized = img.resize((320, 240), Image.LANCZOS)
             img_resized.save("output_image.jpg")
             print(f"Saved! Original: {img.size} → Resized: {img_resized.size}")
+            update_screen("show_image", {"path": "output_image.jpg"})
+
 
 def get_objects_detected():
     play_audio(detector.get_objects_detected())
 
 def get_battery():
+    readings = ina.getReadings()
     play_audio(f"Battery level is at {readings['percent']:.1f}% with {readings['load_voltage']:.2f} volts, {readings['current']:.6f} amps, and {readings['power']:.3f} watts.")
 
 def Movement(turn: str, offset: float = 0.0):
@@ -468,23 +451,10 @@ def turn(direction: str, seconds: float):
     time.sleep(seconds)
     Movement(turn="left", offset=0.0)
 
-def tail_lightshow():
-    global _lightshow_thread
-    
-    if _lightshow_thread and _lightshow_thread.is_alive():
-        # Already running — turn it off
-        _lightshow_stop.set()
-        _lightshow_thread.join()
-        _lightshow_thread = None
-        pixels.fill((0, 0, 0))
-        pixels.show()
-        play_audio("Tail lightshow stopped.")
-    else:
-        # Not running — turn it on
-        _lightshow_stop.clear()
-        _lightshow_thread = threading.Thread(target=_lightshow_loop, daemon=True)
-        _lightshow_thread.start()
-        play_audio("Tail lightshow started.")
+def tail_wag():
+    kit.servo[11].angle = 0
+    time.sleep(1)
+    kit.servo[11].angle = 180
 
 def play_music(song: str):
     res = requests.get(
@@ -501,8 +471,14 @@ def play_music(song: str):
     preview_url = track["preview"]
     title = track["title"]
     artist = track["artist"]["name"]
+    cover_url = track["album"]["cover_medium"]
 
-    # Stream the preview MP3 into pygame
+    update_screen("now_playing", {
+        "title": title,
+        "artist": artist,
+        "cover_url": cover_url
+    })
+
     audio = requests.get(preview_url, timeout=10)
     audio_buffer = io.BytesIO(audio.content)
 
@@ -511,6 +487,8 @@ def play_music(song: str):
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():
         time.sleep(0.1)
+    
+    update_screen("listening", {})
 
 def follow_person():
     # PID constants — tune these for your robot
@@ -589,16 +567,16 @@ def predictive_driving(prompt: str):
 You are controlling a 4-wheel robot. Based on the image and the user's goal, output ONLY a JSON object. No extra text.
 
 Robot characteristics:
-- turn(direction, seconds): "left" or "right". 1 second ≈ 90 degree turn.
-- move(direction, seconds): "forward" or "backward". 1 second ≈ 30cm of travel.
+- turn(direction, degrees): "left" or "right". 90 = quarter turn, 180 = half turn.
+- move(direction, distance_mm): "forward" or "backward". 300mm ≈ 30cm.
 - Estimate distances and angles from the image as best you can.
 
 Return format:
 {
   "done": false,
   "commands": [
-    {"fn": "turn", "args": {"direction": "left", "seconds": 0.5}},
-    {"fn": "move", "args": {"direction": "forward", "seconds": 1.2}}
+    {"fn": "turn", "args": {"direction": "left", "degrees": 90}},
+    {"fn": "move", "args": {"direction": "forward", "distance_mm": 300}}
   ]
 }
 
@@ -668,12 +646,12 @@ FUNCTIONS = {
     "spin": spin,
     "turn": turn,
     "play_music": play_music,
-    "tail_lightshow": tail_lightshow,
+    "tail_wag": tail_wag,
     "follow_person": follow_person,
     "get_objects_detected": get_objects_detected,
     "predictive_driving": predictive_driving,
     "move": move,
-    "imageGen": imageGen
+    "generateImage": generateImage
 }
 
 # --- Describe tools to the model ---
@@ -688,14 +666,12 @@ Available tools:
 - get_battery() — returns a string describing the current battery level and readings from the INA219 sensor
 - take_picture(prompt: str) — uses the camera to take a photo and uses the prompt argument and photo to respond to the user with whatever extra they asked about what the camera sees (e.g. "what's in front of me?" or "make a joke about what you see")
 - spin() - makes the robot spin in a circle
-- turn(direction: str, seconds: float) - turns the robot in the specified direction ("left" or "right") for a specified number of seconds
-- move(direction: str, seconds: float) - moves the robot forward by direction ("forward" or "backward") for a specified number of seconds
-- predictive_driving(prompt: str) - takes a photo using the camera and uses the prompt and photo to move a series of turns
+- move(direction: str, distance_mm: float) - moves the robot in a direction ("forward" or "backward") by an exact distance in millimeters
+- turn(direction: str, degrees: float) - turns the robot ("left" or "right") by an exact number of degrees
 - get_objects_detected() - returns name of objects currently detected in front of the robot, only use when there isn't anything else in the prompt that would rather be another prompt for take_picture()
-- follow_person() - uses the camera to identify and follow a person in front of the robot
-- tail_lightshow() - running it flips it on or off
+- tail_wag() - causes the tail to wag for a little bit
 - play_music(song: str) - plays a song through the robot's speakers
-- imageGen(prompt: str, image: bool) - generates an image based on the prompt that will be displayed on the robot's screen, can optionally take into account to include the camera as input if image=true
+- generateImage(prompt: str, image: bool) - generates an image based on the prompt that will be displayed on the robot's screen, can optionally take into account to include the camera as input if image=true
 
 If no tool applies, use:
 { "tool": "none", "args": {}, "response": "your plain text answer here" }

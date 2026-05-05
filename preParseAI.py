@@ -11,7 +11,7 @@ import pygame
 import subprocess
 
 from dotenv import load_dotenv
-from ina219 import INA219
+from src.UPS import INA219
 #from adafruit_servokit import ServoKit
 from src.modules.ai_camera import IMX500Detector
 from piper.voice import PiperVoice
@@ -25,8 +25,7 @@ SAMPLE_RATE = 22050
 load_dotenv()
 #kit = ServoKit(channels=16)
 
-ina = INA219(addr=0x41)
-readings = ina.getReadings()
+ina = INA219(addr=0x40)
 defaultThrottle = 0.2
 
 detector = IMX500Detector()
@@ -53,9 +52,6 @@ WHEELBASE_CM = 26.5        # measure left wheel to right wheel
 WHEEL_CIRCUMFERENCE_CM = 3.14159 * WHEEL_DIAMETER_CM
 CM_PER_PULSE = WHEEL_CIRCUMFERENCE_CM / PULSES_PER_REV
 
-_lightshow_thread = None
-_lightshow_stop = threading.Event()
-
 def play_audio(response):
     os.makedirs(os.path.dirname(OUTPUT_FILENAME), exist_ok=True)
     with wave.open(OUTPUT_FILENAME, 'wb') as wav_file:
@@ -68,10 +64,6 @@ def play_audio(response):
     print(f"Audio saved to {OUTPUT_FILENAME}")
     subprocess.run(["aplay", OUTPUT_FILENAME], check=True)
 
-def _lightshow_loop():
-    """Runs in background thread until stop event is set."""
-    while not _lightshow_stop.is_set():
-        rainbow_cycle(0.001)
 
 def wheel(pos):
     # Input a value 0 to 255 to get a color value.
@@ -143,6 +135,7 @@ def get_objects_detected():
     play_audio(detector.get_objects_detected())
 
 def get_battery():
+    readings = ina.getReadings()
     play_audio(f"Battery level is at {readings['percent']:.1f}% with {readings['load_voltage']:.2f} volts, {readings['current']:.6f} amps, and {readings['power']:.3f} watts.")
 
 def Movement(turn: str, offset: float = 0.0):
@@ -218,23 +211,8 @@ def turn(direction: str, degrees: float):
 
     Movement(turn="left", offset=0.0)  # stop
 
-def tail_lightshow():
-    global _lightshow_thread
-    
-    if _lightshow_thread and _lightshow_thread.is_alive():
-        # Already running — turn it off
-        _lightshow_stop.set()
-        _lightshow_thread.join()
-        _lightshow_thread = None
-        pixels.fill((0, 0, 0))
-        pixels.show()
-        play_audio("Tail lightshow stopped.")
-    else:
-        # Not running — turn it on
-        _lightshow_stop.clear()
-        _lightshow_thread = threading.Thread(target=_lightshow_loop, daemon=True)
-        _lightshow_thread.start()
-        play_audio("Tail lightshow started.")
+def tail_wag():
+
 
 def play_music(song: str):
     res = requests.get(
@@ -244,6 +222,7 @@ def play_music(song: str):
     )
     data = res.json()
 
+    print(data)
     if not data.get("data"):
         return f"No results found for '{song}'."
 
@@ -418,7 +397,7 @@ FUNCTIONS = {
     "spin": spin,
     "turn": turn,
     "play_music": play_music,
-    "tail_lightshow": tail_lightshow,
+    "tail_wag": tail_wag,
     "follow_person": follow_person,
     "get_objects_detected": get_objects_detected,
     "predictive_driving": predictive_driving,
@@ -442,7 +421,7 @@ Available tools:
 - predictive_driving(prompt: str) - takes a photo using the camera and uses the prompt and photo to move a series of turns
 - get_objects_detected() - returns name of objects currently detected in front of the robot, only use when there isn't anything else in the prompt that would rather be another prompt for take_picture()
 - follow_person() - uses the camera to identify and follow a person in front of the robot
-- tail_lightshow() - running it flips it on or off
+- wag_tail() - wags the dog's tail for a little bit
 - play_music(song: str) - plays a song through the robot's speakers
 
 If no tool applies, use:
@@ -521,4 +500,4 @@ def model_return(text):
     result = FUNCTIONS[tool_name](**args)
     return str(result)
 
-print(model_return("What is the battery percentage"))
+print(model_return("Play one dance by drake"))

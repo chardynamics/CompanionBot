@@ -9,6 +9,7 @@ from picamera2 import MappedArray, Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics, postprocess_nanodet_detection
 import base64, io
+import requests
 
 class IMX500Detector:
     def __init__(self, model_path="src/models/imx500_network_yolo11n_pp.rpk"):
