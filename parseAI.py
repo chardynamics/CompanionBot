@@ -22,6 +22,7 @@ from src.UPS import INA219
 from adafruit_servokit import ServoKit
 from picamera2 import Picamera2
 from src.modules.ai_camera import IMX500Detector
+from src.PING import UltrasonicParallaxPING
 from piper.voice import PiperVoice
 import json
 
@@ -61,7 +62,21 @@ resampler = soxr.ResampleStream(
 )
 
 sample_buffer: deque[int] = deque()
+PING = UltrasonicParallaxPING(17)
 
+PINGsensor = PING.UltrasonicParallaxPING(17)
+
+# Main loop to print distance
+try:
+    while True:
+        dist_cm = PINGsensor.distance()
+        print(f"Distance to object is {dist_cm:.2f} cm")
+        time.sleep(1) # Wait before the next measurement to avoid echo interference
+
+dist_cm = PINGsensor.distance()
+def distance():
+    while True:
+        dist_cm = PINGsensor.distance()
 # Shared state between callback and main thread
 state = {
     "recording":        False,
@@ -409,26 +424,32 @@ def get_battery():
     play_audio(f"Battery level is at {readings['percent']:.1f}% with {readings['load_voltage']:.2f} volts, {readings['current']:.6f} amps, and {readings['power']:.3f} watts.")
 
 def Movement(turn: str, offset: float = 0.0):
-    if (turn == "left"):
+    if (dist_cm > 10):
+        if (turn == "left"):
+            kit.continuous_servo[0].throttle = defaultThrottle + offset
+            kit.continuous_servo[1].throttle = defaultThrottle + offset
+            kit.continuous_servo[14].throttle = defaultThrottle + offset
+            kit.continuous_servo[15].throttle = defaultThrottle + offset
+        elif (turn == "right"):
+            kit.continuous_servo[0].throttle = defaultThrottle - offset
+            kit.continuous_servo[1].throttle = defaultThrottle - offset
+            kit.continuous_servo[14].throttle = defaultThrottle - offset
+            kit.continuous_servo[15].throttle = defaultThrottle - offset
+        elif (turn == "forward"):
+            kit.continuous_servo[0].throttle = defaultThrottle + offset
+            kit.continuous_servo[1].throttle = defaultThrottle + offset
+            kit.continuous_servo[14].throttle = defaultThrottle - offset
+            kit.continuous_servo[15].throttle = defaultThrottle - offset
+        elif (turn == "backward"):
+            kit.continuous_servo[0].throttle = defaultThrottle - offset
+            kit.continuous_servo[1].throttle = defaultThrottle - offset
+            kit.continuous_servo[14].throttle = defaultThrottle + offset
+            kit.continuous_servo[15].throttle = defaultThrottle + offset
+    else:
         kit.continuous_servo[0].throttle = defaultThrottle + offset
         kit.continuous_servo[1].throttle = defaultThrottle + offset
-        kit.continuous_servo[14].throttle = defaultThrottle + offset
-        kit.continuous_servo[15].throttle = defaultThrottle + offset
-    elif (turn == "right"):
-        kit.continuous_servo[0].throttle = defaultThrottle - offset
-        kit.continuous_servo[1].throttle = defaultThrottle - offset
         kit.continuous_servo[14].throttle = defaultThrottle - offset
         kit.continuous_servo[15].throttle = defaultThrottle - offset
-    elif (turn == "forward"):
-        kit.continuous_servo[0].throttle = defaultThrottle + offset
-        kit.continuous_servo[1].throttle = defaultThrottle + offset
-        kit.continuous_servo[14].throttle = defaultThrottle - offset
-        kit.continuous_servo[15].throttle = defaultThrottle - offset
-    elif (turn == "backward"):
-        kit.continuous_servo[0].throttle = defaultThrottle - offset
-        kit.continuous_servo[1].throttle = defaultThrottle - offset
-        kit.continuous_servo[14].throttle = defaultThrottle + offset
-        kit.continuous_servo[15].throttle = defaultThrottle + offset
 
 def spin():
     Movement(turn="right", offset=0.2)
@@ -790,6 +811,9 @@ def finish_recording() -> None:
 # ──────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────
+thread = threading.Thread(target=background_task, daemon=True)
+thread.start()
+
 def main():
     global SILENCE_THRESHOLD
 
